@@ -1,6 +1,7 @@
 """Read-only views for the interactive terminal; no model fitting or issuance."""
 
 import json
+import threading
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +15,8 @@ from .portfolio import current_result
 from .realtime import gauge, within_session
 from .store import Store
 from .util import digest, utcnow
+
+_parquet_read_lock = threading.Lock()
 
 
 @lru_cache(maxsize=4)
@@ -29,7 +32,8 @@ def frame(path):
 
 @lru_cache(maxsize=32)
 def _symbol_parquet(path, modified, symbol):
-    return pd.read_parquet(path, filters=[("symbol", "==", symbol)])
+    with _parquet_read_lock:
+        return pd.read_parquet(path, filters=[("symbol", "==", symbol)], use_threads=False)
 
 
 def symbol_frame(path, symbol):
