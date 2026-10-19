@@ -1,0 +1,36 @@
+import { useEffect, useState } from "react";
+import { api, number, type Data } from "./api";
+import { BilateralProbability } from "./BilateralProbability";
+const pct=(x:number|null|undefined)=>x==null?'—':`${number(x*100,2)}%`;
+const bandNames:Record<string,string>={compatible:'회고 정합',insufficient:'표본 부족',date_concentration:'날짜 집중',not_calibrated:'정합 미확인'};
+function Reliability({bins,side}:{bins:Data[],side:string}){
+  const x=(v:number)=>50+v*500,y=(v:number)=>245-v*210;
+  return <svg viewBox="0 0 600 295" role="img" aria-label={`${side==='up'?'상승':'하락'} 확률 Reliability Diagram`} style={{width:'100%',maxWidth:640}}>
+    <line x1="50" y1="245" x2="550" y2="35" stroke="#aaa" strokeDasharray="5 5" />
+    {[0,.25,.5,.75,1].map(v=><g key={v}><line x1={x(v)} y1="35" x2={x(v)} y2="245" stroke="#e6e3ef"/><text x={x(v)} y="263" textAnchor="middle" fontSize="11" fill="currentColor">{v*100}%</text><text x="43" y={y(v)+4} textAnchor="end" fontSize="11" fill="currentColor">{v*100}%</text></g>)}
+    {bins.filter(b=>b.n>0).map(b=><g key={b.low}><title>{`${Math.round(b.low*100)}–${Math.round(b.high*100)}%: 예측 ${pct(b.mean_probability)}, 실제 ${pct(b.actual_frequency)}, ${b.n}건·${b.dates}일`}</title>{b.frequency_ci95&&<line x1={x(b.mean_probability)} x2={x(b.mean_probability)} y1={y(b.frequency_ci95[0])} y2={y(b.frequency_ci95[1])} stroke="#8576c9" strokeWidth="2"/>}<circle cx={x(b.mean_probability)} cy={y(b.actual_frequency)} r={Math.min(9,3+Math.log10(b.n))} fill={b.status==='compatible'?'#6751c8':'#b0a8c8'} stroke="white"/></g>)}
+    <text x="300" y="287" textAnchor="middle" fontSize="12" fill="currentColor">예측 확률 → · 세로축 실제 빈도 · 세로선 95% 구간</text>
+  </svg>;
+}
+export function ProbabilityQuality(){
+  const [data,setData]=useState<Data|null>(null),[source,setSource]=useState('history'),[side,setSide]=useState('up'),[id,setId]=useState('initial_refit__sigmoid');
+  useEffect(()=>{let active=true;const load=()=>api('/probability-quality').then(d=>{if(active)setData(d);}).catch(()=>{});void load();const t=setInterval(load,15000);return()=>{active=false;clearInterval(t);};},[]);
+  if(!data?.history?.results)return null;
+  const names:Record<string,string>={initial:'초기 방식 · 동일 표본 재학습',flow:'종목별 수급 추가',dart:'공시 사건 추가',flow_dart:'수급 + 공시',frozen_initial:'기존 초기 모델 · 보존 예측',frozen_recent:'기존 최근 연구 모델 · 보존 예측'};
+  const choices=source==='free'?Object.entries(data.free?.results??{}).map(([k,v])=>({id:k,name:`${names[k.split('__')[0]]??k} · ${k.split('__')[1]??'고정'}`,metrics:v})):source==='history'?Object.entries(data.history.results).map(([k,v])=>({id:k,name:k.startsWith('initial')?'초기 방식 · 고정 예측':'최근 자료 가중 · 고정 예측',metrics:v})):data.forward.models??[];
+  const selected=choices.find((m:Data)=>m.id===id)??choices[0]; const r=selected?.metrics;
+  const bands=r?.bins?.filter((b:Data)=>b.side===side)??[];
+  const m=r?.date_balanced;
+  return <section className="probability-evidence"><BilateralProbability data={data.history.bilateral}/><span className="eyebrow">새 핵심 기준 · 확률 정합성 + 구분력 + 충분한 표본</span><h3>60%라고 말한 날, 실제로 얼마나 일어났나요?</h3>
+    <p>정규장 마감 정보로 다음 거래일 종가 방향을 예측합니다. 보합 제외 조건부 확률입니다. 서로 다른 거래일도 독립이라고 가정하지 않고 같은 날짜 종목을 함께 묶은 20거래일 블록으로 오차를 측정합니다.</p>
+    <div className="probability-bins" aria-label="확률 품질 평가 자료">{[['history','고정 과거 예측 재평가'],['forward','실제 전향 예측'],...(data.free?.results?[['free','새 수급·공시 비교']]:[])].map(([k,t])=><button key={k} aria-pressed={source===k} onClick={()=>{setSource(k);setId(k==='history'?'initial_refit__sigmoid':k==='free'?'initial__sigmoid':'initial');}}>{t}</button>)}</div>
+    <label>비교 모델 <select aria-label="확률 품질 모델" value={selected?.id??''} onChange={e=>setId(e.target.value)}>{choices.map((v:Data)=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
+    <p>{source==='free'?'새 수급·공시를 수집해 학습·보정한 2024년 회고 비교입니다. 독립 검증이나 운영 승격 결과가 아닙니다.':source==='history'?'2024년 재사용 회고 자료입니다. 이번 재평가에서 보정기를 재학습하거나 모델을 재선택하지 않았습니다.':'실제 사전 발행 예측만 사용합니다. 과거 재생 결과는 전향 표본에 포함하지 않습니다.'} 새로운 미사용 과거 기간은 확인되지 않았습니다.</p>
+    {m?<><div className="probability-summary"><article><span>날짜 균등 가중 · 확률 오차</span><strong>Brier {number(m.brier,6)}</strong><p>Log Loss {number(m.log_loss,6)} · ECE {number(m.ece*100,2)}%p<br/>과거 상승 빈도 기준 Brier Skill {pct(m.brier_skill)}<br/>95% 구간 [{m.brier_skill_ci95.map(pct).join(', ')}]</p></article><article><span>확률 구분력과 강한 신호</span><strong>Resolution {number(m.resolution,6)}</strong><p>60% 이상 신호 {pct(r.high60_coverage)} · 70% 이상 {pct(r.high70_coverage)}<br/>{number(r.n)}건 · 서로 다른 {r.dates}거래일<br/>확률의 퍼짐 {number(m.probability_std*100,2)}%p</p></article></div>
+    <p>{r.qualified?'해당 자료에서 연구 기준 충족 · 자동 운영 승격 아님':'확률 정합성·구분력·강한 구간 표본을 모두 충족하지 못했습니다.'} Resolution은 구간별 실제 빈도의 차이를 나타내는 기술 통계이며 이 값만으로 우수 판정을 내리지 않습니다.</p></>:<p>발행 {selected?.issued??0}건 · 검증 표본 {r?.n??0}건 · 정답 대기 {selected?.pending??0}건. 실제 전향 성능은 아직 측정되지 않았습니다.</p>}
+    <div className="probability-bins" aria-label="확률 품질 방향">{[['up','상승 확률 품질'],['down','하락 확률 품질']].map(([k,t])=><button key={k} aria-pressed={side===k} onClick={()=>setSide(k)}>{t}</button>)}</div>
+    {!!bands.length&&<><Reliability bins={bands} side={side}/><div className="direction-table"><table><thead><tr><th>예측 구간</th><th>예측 평균</th><th>실제 빈도</th><th>95% 구간</th><th>표본·거래일</th><th>최다 하루 비중</th><th>판정</th></tr></thead><tbody>{bands.map((b:Data)=><tr key={b.low}><td>{Math.round(b.low*100)}–{Math.round(b.high*100)}% 미만</td><td>{pct(b.mean_probability)}</td><td>{pct(b.actual_frequency)}</td><td>{b.frequency_ci95?b.frequency_ci95.map(pct).join('–'):'추정 표본 부족'}</td><td>{number(b.n)}건 · {b.dates}일</td><td>{pct(b.max_date_share)}</td><td>{b.status==='compatible'?(source==='history'?'회고 정합':'연구 정합'):bandNames[b.status]}</td></tr>)}</tbody></table></div></>}
+    {source==='free'&&<p>2021년 거래대금으로 고정한 30종목 대상입니다. 수급·공시는 예측일 이전 자료만 사용했습니다. 학습 ~2021년 / 보정 2022년 / 선택 2023년 / 회고 평가 2024년입니다. 2023·2024년은 이미 사용한 기간이며 독립 검증이 아닙니다. 당시 수급의 개정 이력과 공시 시각은 완전히 입증되지 않아 연구용으로만 유지합니다. 새 후보와 초기 방식은 같은 표본에서 재학습했고, 기존 고정 모델은 보존된 예측을 같은 평가 행에 맞췄습니다.</p>}
+    <details><summary>새 판정 기준과 과거 보정 방법 비교</summary><p>구간별 500건·60거래일 이상, 날짜 집중도 환산 30일 이상, 하루 최대 10% 이하, 확률 오차 95% 구간 전체 ±5%p를 요구합니다. 60% 이상 구간에서 전체 표본의 1% 이상 발생해야 하며, 표본 가중·날짜 균등 가중 모두 과거 빈도 대비 Brier Skill 및 Log Loss 개선의 95% 하한이 0보다 커야 합니다. 확률 표준편차 2%p 이상, 상위 90%와 하위 10% 분위수 차이 5%p 이상 및 양의 Resolution도 요구합니다. 초기 연구 규칙이며 통계적 보장이 아닙니다.</p><p>과거 빈도는 2021년까지 자료의 상승 빈도 {pct(source==='free'?data.free.prior_up:data.history.policy.prior_up)}로 미리 고정했습니다. ECE와 Resolution은 전체 확률 범위를 5%p 간격으로 측정합니다. 아래 2023년 고정 예측 비교는 진단용이며 재튜닝·재선택에 사용하지 않습니다.</p><div className="direction-table"><table><thead><tr><th>보정 방식</th><th>Brier</th><th>Log Loss</th><th>ECE</th><th>Resolution</th><th>60% 이상 발생 비율</th></tr></thead><tbody>{Object.entries(data.history.calibration_comparison).map(([k,v])=>{const a=v as Data;return <tr key={k}><td>{k}</td><td>{number(a.row_weighted.brier,6)}</td><td>{number(a.row_weighted.log_loss,6)}</td><td>{number(a.row_weighted.ece*100,2)}%p</td><td>{number(a.row_weighted.resolution,6)}</td><td>{pct(a.high60_coverage)}</td></tr>;})}</tbody></table></div><p>nested7_tail50은 유지합니다. 현재 구간은 방향과 무관한 변동폭 구간으로, 상승 시·하락 시 조건부 구간으로 바꿔 부르지 않습니다. 향후 동일 종목·시점·대상일의 방향 확률과 별도 검증된 조건부 변동폭을 연결하도록 계약을 분리했습니다.</p></details>
+  </section>;
+}

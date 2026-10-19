@@ -1,0 +1,16 @@
+**
+!pyproject.toml
+!src/
+!src/**
+!frontend/
+!frontend/**
+frontend/node_modules
+frontend/dist
+!scripts/
+!scripts/public-preview.js
+!deploy/
+!deploy/render/
+!deploy/render/Dockerfile
+!deploy/render/requirements.txt
+!deploy/seed/
+!deploy/seed/**
