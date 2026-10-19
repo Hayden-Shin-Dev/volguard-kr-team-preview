@@ -22,7 +22,8 @@ def parquet(path, modified):
 
 
 def frame(path):
-    path = Path(path)
+    # Visitors share a read-only market-data link; cache the actual file once.
+    path = Path(path).resolve()
     return parquet(str(path), path.stat().st_mtime_ns) if path.exists() else pd.DataFrame()
 
 
