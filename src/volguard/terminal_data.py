@@ -27,6 +27,16 @@ def frame(path):
     return parquet(str(path), path.stat().st_mtime_ns) if path.exists() else pd.DataFrame()
 
 
+@lru_cache(maxsize=32)
+def _symbol_parquet(path, modified, symbol):
+    return pd.read_parquet(path, filters=[("symbol", "==", symbol)])
+
+
+def symbol_frame(path, symbol):
+    path = Path(path).resolve()
+    return _symbol_parquet(str(path), path.stat().st_mtime_ns, symbol) if path.exists() else pd.DataFrame()
+
+
 def read_json(path, default=None):
     path = Path(path)
     return json.loads(path.read_text(encoding="utf8")) if path.exists() else default
@@ -37,7 +47,7 @@ def clean(value):
 
 
 def history(settings, symbol, limit=180):
-    bars = frame(settings.data_dir / "silver/bars.parquet")
+    bars = symbol_frame(settings.data_dir / "silver/bars.parquet", symbol)
     if bars.empty:
         return []
     rows = bars[bars.symbol.eq(symbol)].sort_values("date").tail(limit)

@@ -6,14 +6,14 @@ import pandas as pd
 
 from .config import KST
 from .data import Lake
-from .terminal_data import frame, read_json
+from .terminal_data import frame, read_json, symbol_frame
 
 
 def chart_history(settings, symbol):
     lake = Lake(settings.data_dir)
     if symbol not in {m["symbol"] for m in lake.universe()["members"]}:
         raise ValueError("지원하지 않는 종목입니다")
-    bars = frame(lake.root / "silver/bars.parquet")
+    bars = symbol_frame(lake.root / "silver/bars.parquet", symbol)
     own = bars[bars.symbol.eq(symbol)].sort_values("date").copy()
     actual = own.set_index("date")
 
